@@ -1,3 +1,33 @@
 {
-  
+	"name": "Working Time Calculator",
+	"short_name": "Time Calc",
+	"description": "Track your daily work hours effortlessly with a beautiful glassmorphism design",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#f5f7fa",
+	"theme_color": "#4299e1",
+	"orientation": "portrait-primary",
+	"categories": ["productivity", "utilities"],
+	"icons": [
+		{
+			"src": "icon-192.svg",
+			"sizes": "192x192",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		},
+		{
+			"src": "icon-512.svg",
+			"sizes": "512x512",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	],
+	"screenshots": [
+		{
+			"src": "screenshot.png",
+			"sizes": "540x720",
+			"type": "image/png"
+		}
+	]
 }
+

@@ -1,43 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Working Time Calculator</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <div class="container">
-    <h1>Working Time Calculator</h1>
-    
-    <h2>Morning Session</h2>
-      <div class="input-ctn">
-        <label for="morning-start-time">Start Time:</label>
-        <input type="time" id="morning-start-time" value="08:00" required>
+
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Track your daily work hours effortlessly with a beautiful glassmorphism design">
+    <meta name="theme-color" content="#4299e1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Time Calc">
+
+    <title>Working Time Calculator</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <link rel="apple-touch-icon" href="icon-192.svg">
+
+    <link rel="stylesheet" href="styles.css">
+  </head>
+
+  <body>
+    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+      <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+      <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+    </button>
+
+    <div class="container">
+      <header class="header">
+        <h1>Working Time Calculator</h1>
+        <p class="subtitle">Track your daily work hours effortlessly</p>
+      </header>
+
+      <div class="sessions-container">
+        <section class="session-card morning">
+          <div class="session-header">
+            <h2>Morning Session</h2>
+          </div>
+          <div class="time-inputs">
+            <div class="input-group">
+              <label for="morning-start-time">Start Time</label>
+              <input type="time" id="morning-start-time" value="08:00" required aria-label="Morning start time">
+            </div>
+            <div class="time-separator">→</div>
+            <div class="input-group">
+              <label for="morning-end-time">End Time</label>
+              <input type="time" id="morning-end-time" value="12:30" required aria-label="Morning end time">
+            </div>
+          </div>
+          <div class="session-duration" id="morning-duration">Duration: --</div>
+        </section>
+
+        <section class="session-card afternoon">
+          <div class="session-header">
+            <h2>Afternoon Session</h2>
+          </div>
+          <div class="time-inputs">
+            <div class="input-group">
+              <label for="afternoon-start-time">Start Time</label>
+              <input type="time" id="afternoon-start-time" value="13:00" required aria-label="Afternoon start time">
+            </div>
+            <div class="time-separator">→</div>
+            <div class="input-group">
+              <label for="afternoon-end-time">End Time</label>
+              <input type="time" id="afternoon-end-time" value="16:54" required aria-label="Afternoon end time">
+            </div>
+          </div>
+          <div class="session-duration" id="afternoon-duration">Duration: --</div>
+        </section>
+
+        <section class="session-card minimum">
+          <div class="session-header">
+            <h2>Target Hours</h2>
+          </div>
+          <div class="input-group centered">
+            <label for="minimum-time">Minimum Required</label>
+            <input type="time" id="minimum-time" value="08:24" required aria-label="Minimum required time">
+          </div>
+        </section>
       </div>
-      <div class="input-ctn">
-        <label for="morning-end-time">End Time:</label>
-        <input type="time" id="morning-end-time" value="12:30" required>
+
+      <div class="results-section">
+        <div class="progress-container">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="result-card" id="result">
+          <div class="result-text">Enter your work times to see results</div>
+        </div>
       </div>
-    <h2>Afternoon Session</h2>
-      <div class="input-ctn">
-        <label for="afternoon-start-time">Start Time:</label>
-        <input type="time" id="afternoon-start-time" value="13:00" required>
-      </div>
-      <div class="input-ctn">
-        <label for="afternoon-end-time">End Time:</label>
-        <input type="time" id="afternoon-end-time" value="16:54" required>
-      </div>
-    <h2>Minimum Time</h2>
-      <div class="input-ctn">
-        <label for="minimum-time">Minimum:</label>
-        <input type="time" id="minimum-time" value="08:24" required>
-      </div>
-    <button onclick="calculateWorkingTime()">Calculate</button>
-    
-    <p id="result"></p>
-  </div>
-  
-  <script src="script.js"></script>
-</body>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+
 </html>
