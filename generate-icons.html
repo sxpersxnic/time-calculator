@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+
+	<head>
+		<style>
+			body {
+				margin: 0;
+				padding: 20px;
+				font-family: Arial, sans-serif;
+				background: #f0f0f0;
+			}
+
+			.icon-container {
+				display: inline-block;
+				margin: 20px;
+			}
+
+			h2 {
+				margin-top: 0;
+			}
+
+			p {
+				color: #666;
+				font-size: 14px;
+			}
+
+			.icon-preview {
+				background: white;
+				padding: 20px;
+				border-radius: 10px;
+				box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+			}
+		</style>
+	</head>
+
+	<body>
+		<h1>Time Calculator PWA Icons</h1>
+		<p>Right-click each icon below and "Save Image As" to download as PNG. Make sure to name them icon-192.png and
+			icon-512.png respectively.</p>
+
+		<div class="icon-container">
+			<h2>192x192 Icon</h2>
+			<div class="icon-preview">
+				<svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+					<!-- Background -->
+					<rect width="192" height="192" rx="32" fill="url(#gradient192)" />
+
+					<!-- Clock face -->
+					<circle cx="96" cy="96" r="60" fill="white" opacity="0.2" />
+					<circle cx="96" cy="96" r="50" fill="none" stroke="white" stroke-width="4" />
+
+					<!-- Clock hands -->
+					<line x1="96" y1="96" x2="96" y2="66" stroke="white" stroke-width="6" stroke-linecap="round" />
+					<line x1="96" y1="96" x2="116" y2="96" stroke="white" stroke-width="4" stroke-linecap="round" />
+
+					<!-- Center dot -->
+					<circle cx="96" cy="96" r="6" fill="white" />
+
+					<!-- Hour markers -->
+					<circle cx="96" cy="56" r="3" fill="white" />
+					<circle cx="96" cy="136" r="3" fill="white" />
+					<circle cx="56" cy="96" r="3" fill="white" />
+					<circle cx="136" cy="96" r="3" fill="white" />
+
+					<defs>
+						<linearGradient id="gradient192" x1="0%" y1="0%" x2="100%" y2="100%">
+							<stop offset="0%" style="stop-color:#4299e1;stop-opacity:1" />
+							<stop offset="100%" style="stop-color:#3182ce;stop-opacity:1" />
+						</linearGradient>
+					</defs>
+				</svg>
+			</div>
+		</div>
+
+		<div class="icon-container">
+			<h2>512x512 Icon</h2>
+			<div class="icon-preview">
+				<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+					<!-- Background -->
+					<rect width="512" height="512" rx="85" fill="url(#gradient512)" />
+
+					<!-- Clock face -->
+					<circle cx="256" cy="256" r="160" fill="white" opacity="0.2" />
+					<circle cx="256" cy="256" r="135" fill="none" stroke="white" stroke-width="12" />
+
+					<!-- Clock hands -->
+					<line x1="256" y1="256" x2="256" y2="161" stroke="white" stroke-width="16" stroke-linecap="round" />
+					<line x1="256" y1="256" x2="311" y2="256" stroke="white" stroke-width="12" stroke-linecap="round" />
+
+					<!-- Center dot -->
+					<circle cx="256" cy="256" r="16" fill="white" />
+
+					<!-- Hour markers -->
+					<circle cx="256" cy="136" r="8" fill="white" />
+					<circle cx="256" cy="376" r="8" fill="white" />
+					<circle cx="136" cy="256" r="8" fill="white" />
+					<circle cx="376" cy="256" r="8" fill="white" />
+
+					<!-- Quarter hour markers -->
+					<circle cx="326" cy="186" r="6" fill="white" opacity="0.7" />
+					<circle cx="326" cy="326" r="6" fill="white" opacity="0.7" />
+					<circle cx="186" cy="186" r="6" fill="white" opacity="0.7" />
+					<circle cx="186" cy="326" r="6" fill="white" opacity="0.7" />
+
+					<defs>
+						<linearGradient id="gradient512" x1="0%" y1="0%" x2="100%" y2="100%">
+							<stop offset="0%" style="stop-color:#4299e1;stop-opacity:1" />
+							<stop offset="100%" style="stop-color:#3182ce;stop-opacity:1" />
+						</linearGradient>
+					</defs>
+				</svg>
+			</div>
+		</div>
+
+		<div style="margin-top: 40px; padding: 20px; background: white; border-radius: 10px;">
+			<h2>Instructions:</h2>
+			<ol>
+				<li>Right-click on each SVG icon above</li>
+				<li>Select "Save Image As..." or "Download Image"</li>
+				<li>Save them as <code>icon-192.png</code> and <code>icon-512.png</code></li>
+				<li>Place them in the root directory of your project</li>
+			</ol>
+			<p><strong>Note:</strong> If your browser doesn't allow direct PNG export, you can:</p>
+			<ul>
+				<li>Use an online SVG to PNG converter</li>
+				<li>Or use a tool like Inkscape or Adobe Illustrator to export at the correct sizes</li>
+				<li>Or use the developer tools to screenshot the SVGs</li>
+			</ul>
+		</div>
+	</body>
+
+</html>
