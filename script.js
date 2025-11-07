@@ -92,14 +92,142 @@ themeToggle.addEventListener('click', () => {
 // Auto-calculate on input change
 document.addEventListener('DOMContentLoaded', function () {
 	const inputs = document.querySelectorAll('input[type="time"]');
+	const clearDataBtn = document.getElementById('clear-data-btn');
+
+	// Load saved data from localStorage
+	loadSavedData();
+
+	// Update status visibility based on saved data
+	updateDataStatus();
+
+	// Add event listeners for auto-save and calculation
 	inputs.forEach((input) => {
-		input.addEventListener('change', calculateWorkingTime);
+		input.addEventListener('change', () => {
+			saveData();
+			calculateWorkingTime();
+		});
 		input.addEventListener('input', calculateWorkingTime);
+	});
+
+	// Clear data button handler
+	clearDataBtn.addEventListener('click', () => {
+		if (confirm('Are you sure you want to clear all saved data?')) {
+			clearSavedData();
+			// Reset inputs to default values
+			document.getElementById('morning-start-time').value = '08:00';
+			document.getElementById('morning-end-time').value = '12:30';
+			document.getElementById('afternoon-start-time').value = '13:00';
+			document.getElementById('afternoon-end-time').value = '16:54';
+			document.getElementById('minimum-time').value = '08:24';
+			// Recalculate with default values
+			calculateWorkingTime();
+			// Update status
+			updateDataStatus();
+		}
 	});
 
 	// Initial calculation
 	calculateWorkingTime();
 });
+
+// Update data status indicator
+function updateDataStatus() {
+	const dataStatus = document.getElementById('data-status');
+	const statusText = document.getElementById('status-text');
+	const savedData = localStorage.getItem('workTimeData');
+
+	if (savedData) {
+		try {
+			const data = JSON.parse(savedData);
+			const lastSaved = new Date(data.lastSaved);
+			const now = new Date();
+			const diffMinutes = Math.floor((now - lastSaved) / 1000 / 60);
+
+			if (diffMinutes < 1) {
+				statusText.textContent = 'Data saved just now';
+			} else if (diffMinutes < 60) {
+				statusText.textContent = `Data saved ${diffMinutes} minute${
+					diffMinutes > 1 ? 's' : ''
+				} ago`;
+			} else if (diffMinutes < 1440) {
+				const hours = Math.floor(diffMinutes / 60);
+				statusText.textContent = `Data saved ${hours} hour${
+					hours > 1 ? 's' : ''
+				} ago`;
+			} else {
+				const days = Math.floor(diffMinutes / 1440);
+				statusText.textContent = `Data saved ${days} day${
+					days > 1 ? 's' : ''
+				} ago`;
+			}
+			dataStatus.style.opacity = '1';
+		} catch (error) {
+			dataStatus.style.opacity = '0';
+		}
+	} else {
+		statusText.textContent = 'No saved data';
+		dataStatus.style.opacity = '0.5';
+	}
+}
+
+// Save data to localStorage
+function saveData() {
+	const data = {
+		morningStart: document.getElementById('morning-start-time').value,
+		morningEnd: document.getElementById('morning-end-time').value,
+		afternoonStart: document.getElementById('afternoon-start-time').value,
+		afternoonEnd: document.getElementById('afternoon-end-time').value,
+		minimumTime: document.getElementById('minimum-time').value,
+		lastSaved: new Date().toISOString(),
+	};
+
+	localStorage.setItem('workTimeData', JSON.stringify(data));
+	updateDataStatus();
+	console.log('Data saved to localStorage');
+}
+
+// Load saved data from localStorage
+function loadSavedData() {
+	const savedData = localStorage.getItem('workTimeData');
+
+	if (savedData) {
+		try {
+			const data = JSON.parse(savedData);
+
+			// Restore values to inputs
+			if (data.morningStart) {
+				document.getElementById('morning-start-time').value =
+					data.morningStart;
+			}
+			if (data.morningEnd) {
+				document.getElementById('morning-end-time').value =
+					data.morningEnd;
+			}
+			if (data.afternoonStart) {
+				document.getElementById('afternoon-start-time').value =
+					data.afternoonStart;
+			}
+			if (data.afternoonEnd) {
+				document.getElementById('afternoon-end-time').value =
+					data.afternoonEnd;
+			}
+			if (data.minimumTime) {
+				document.getElementById('minimum-time').value =
+					data.minimumTime;
+			}
+
+			console.log('Data loaded from localStorage');
+		} catch (error) {
+			console.error('Error loading saved data:', error);
+		}
+	}
+}
+
+// Clear saved data
+function clearSavedData() {
+	localStorage.removeItem('workTimeData');
+	console.log('Saved data cleared');
+}
 
 function formatDuration(hours) {
 	const h = Math.floor(hours);
