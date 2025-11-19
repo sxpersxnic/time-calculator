@@ -2,7 +2,7 @@
 	"name": "Working Time Calculator",
 	"short_name": "Time Calc",
 	"description": "Track your daily work hours effortlessly with a beautiful glassmorphism design",
-	"start_url": "/",
+	"start_url": "/time-calculator",
 	"display": "standalone",
 	"background_color": "#f5f7fa",
 	"theme_color": "#4299e1",
