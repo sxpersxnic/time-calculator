@@ -123,7 +123,17 @@
           </svg>
           Clear Data
         </button>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button class="clear-data-btn" id="save-entry-btn" aria-label="Save history entry">Save Entry</button>
+          <button class="clear-data-btn" id="cancel-edit-btn" aria-label="Cancel edit" style="display:none">Cancel
+            Edit</button>
+          <button class="clear-data-btn" id="export-history-btn" aria-label="Export history">Export History</button>
+          <button class="clear-data-btn" id="import-history-btn" aria-label="Import history">Import History</button>
+          <button class="clear-data-btn" id="clear-history-btn" aria-label="Clear history">Clear History</button>
+          <input type="file" id="import-history-input" accept="application/json" style="display:none">
+        </div>
       </div>
+      <div id="history-viewer" style="margin-top:1rem;font-size:0.9rem;color:var(--text-muted)"></div>
     </div>
 
     <script src="script.js"></script>

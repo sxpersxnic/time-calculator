@@ -6,7 +6,7 @@ if ('serviceWorker' in navigator) {
 			.then((registration) => {
 				console.log(
 					'Service Worker registered successfully:',
-					registration.scope
+					registration.scope,
 				);
 			})
 			.catch((error) => {
@@ -14,6 +14,283 @@ if ('serviceWorker' in navigator) {
 			});
 	});
 }
+
+// ----- History (localStorage) -----
+let editingDate = null;
+
+function loadHistory() {
+	try {
+		const raw = localStorage.getItem('workTimeHistory');
+		return raw ? JSON.parse(raw) : [];
+	} catch (e) {
+		console.error('Failed to load history', e);
+		return [];
+	}
+}
+
+function saveHistory(history) {
+	try {
+		localStorage.setItem('workTimeHistory', JSON.stringify(history));
+	} catch (e) {
+		console.error('Failed to save history', e);
+	}
+}
+
+function saveHistoryEntry() {
+	// Build entry from current inputs/calculation
+	const morningStart = document.getElementById('morning-start-time').value;
+	const morningEnd = document.getElementById('morning-end-time').value;
+	const afternoonStart = document.getElementById(
+		'afternoon-start-time',
+	).value;
+	const afternoonEnd = document.getElementById('afternoon-end-time').value;
+	const minimumTime = document.getElementById('minimum-time').value;
+
+	const ms = parseTimeToMinutes(morningStart);
+	const me = parseTimeToMinutes(morningEnd);
+	const as = parseTimeToMinutes(afternoonStart);
+	const ae = parseTimeToMinutes(afternoonEnd);
+	const minHours = parseTargetToHours(minimumTime);
+
+	if ([ms, me, as, ae].some((v) => isNaN(v)) || isNaN(minHours)) {
+		alert('Cannot save entry: one or more time fields are invalid.');
+		return;
+	}
+
+	const morningHours = (me - ms) / 60;
+	const afternoonHours = (ae - as) / 60;
+	const totalHours = morningHours + afternoonHours;
+	const overtime = totalHours - minHours;
+
+	const entry = {
+		date: editingDate ? editingDate : new Date().toISOString(),
+		morningHours: Number(morningHours.toFixed(3)),
+		afternoonHours: Number(afternoonHours.toFixed(3)),
+		totalHours: Number(totalHours.toFixed(3)),
+		overtime: Number(overtime.toFixed(3)),
+		raw: {
+			morningStart,
+			morningEnd,
+			afternoonStart,
+			afternoonEnd,
+			minimumTime,
+		},
+	};
+
+	const history = loadHistory();
+	if (editingDate) {
+		const idx = history.findIndex(
+			(item) => item && item.date === editingDate,
+		);
+		if (idx !== -1) {
+			history[idx] = entry;
+		} else {
+			history.push(entry);
+		}
+		editingDate = null;
+		// Restore Save button text
+		const saveBtn = document.getElementById('save-entry-btn');
+		if (saveBtn) saveBtn.textContent = 'Save Entry';
+		const cancelBtn = document.getElementById('cancel-edit-btn');
+		if (cancelBtn) cancelBtn.style.display = 'none';
+		alert('Entry updated');
+	} else {
+		history.push(entry);
+		alert('Entry saved to history');
+	}
+	// Keep history reasonable length
+	const maxEntries = 365;
+	if (history.length > maxEntries)
+		history.splice(0, history.length - maxEntries);
+	saveHistory(history);
+	loadHistoryViewer();
+}
+
+function startEditEntry(dateISO) {
+	const history = loadHistory();
+	const entry = history.find((item) => item && item.date === dateISO);
+	if (!entry) {
+		alert('Entry not found');
+		return;
+	}
+	// Populate inputs with raw values
+	const raw = entry.raw || {};
+	if (raw.morningStart)
+		document.getElementById('morning-start-time').value = raw.morningStart;
+	if (raw.morningEnd)
+		document.getElementById('morning-end-time').value = raw.morningEnd;
+	if (raw.afternoonStart)
+		document.getElementById('afternoon-start-time').value =
+			raw.afternoonStart;
+	if (raw.afternoonEnd)
+		document.getElementById('afternoon-end-time').value = raw.afternoonEnd;
+	if (raw.minimumTime)
+		document.getElementById('minimum-time').value = raw.minimumTime;
+	// Set editing state
+	editingDate = dateISO;
+	const saveBtn = document.getElementById('save-entry-btn');
+	if (saveBtn) saveBtn.textContent = 'Update Entry';
+	const cancelBtn = document.getElementById('cancel-edit-btn');
+	if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+	// Recalculate to show current values
+	calculateWorkingTime();
+}
+
+function cancelEdit() {
+	editingDate = null;
+	const saveBtn = document.getElementById('save-entry-btn');
+	if (saveBtn) saveBtn.textContent = 'Save Entry';
+	const cancelBtn = document.getElementById('cancel-edit-btn');
+	if (cancelBtn) cancelBtn.style.display = 'none';
+	// Optionally reload saved data
+	loadSavedData();
+	calculateWorkingTime();
+}
+
+function exportHistory() {
+	const history = loadHistory();
+	const blob = new Blob([JSON.stringify(history, null, 2)], {
+		type: 'application/json',
+	});
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `time-history-${new Date().toISOString().slice(0, 10)}.json`;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+	URL.revokeObjectURL(url);
+}
+
+function importHistoryFromFile(file) {
+	const reader = new FileReader();
+	reader.onload = function (e) {
+		try {
+			const parsed = JSON.parse(e.target.result);
+			if (!Array.isArray(parsed))
+				throw new Error('Invalid history format');
+
+			const existing = loadHistory();
+			const replace = confirm(
+				'Replace existing history? OK = Replace, Cancel = Merge',
+			);
+			let merged;
+			if (replace) {
+				merged = parsed;
+			} else {
+				merged = existing.concat(parsed);
+				// de-dup by ISO date if available
+				const seen = new Map();
+				merged.reverse().forEach((item) => {
+					if (item && item.date && !seen.has(item.date))
+						seen.set(item.date, item);
+				});
+				merged = Array.from(seen.values()).reverse();
+			}
+			saveHistory(merged);
+			loadHistoryViewer();
+			alert('History imported successfully');
+		} catch (err) {
+			console.error('Import failed', err);
+			alert('Failed to import history: invalid file');
+		}
+	};
+	reader.readAsText(file);
+}
+
+function loadHistoryViewer() {
+	const viewer = document.getElementById('history-viewer');
+	if (!viewer) return;
+	const history = loadHistory();
+	if (!history || history.length === 0) {
+		viewer.innerHTML = '<div>No history entries</div>';
+		return;
+	}
+	// Show latest 10 entries
+	const last = history.slice(-10).reverse();
+	viewer.innerHTML = last
+		.map((h, idx) => {
+			const date = new Date(h.date).toLocaleString();
+			// Use data-date to identify the entry for deletion
+			return (
+				`<div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border-subtle);">` +
+				`<div><strong>${date}</strong> — ${h.totalHours}h (OT: ${h.overtime >= 0 ? '+' : ''}${h.overtime}h)</div>` +
+				`<div><button class="clear-data-btn delete-history-btn" data-date="${h.date}">Delete</button></div>` +
+				`</div>`
+			);
+		})
+		.join('');
+}
+
+// Attach history UI handlers
+document.addEventListener('DOMContentLoaded', function () {
+	const saveEntryBtn = document.getElementById('save-entry-btn');
+	const exportBtn = document.getElementById('export-history-btn');
+	const importBtn = document.getElementById('import-history-btn');
+	const importInput = document.getElementById('import-history-input');
+
+	if (saveEntryBtn) saveEntryBtn.addEventListener('click', saveHistoryEntry);
+	if (exportBtn) exportBtn.addEventListener('click', exportHistory);
+	if (importBtn && importInput) {
+		importBtn.addEventListener('click', () => importInput.click());
+		importInput.addEventListener('change', (e) => {
+			if (e.target.files && e.target.files[0])
+				importHistoryFromFile(e.target.files[0]);
+			e.target.value = '';
+		});
+	}
+
+	const clearHistoryBtn = document.getElementById('clear-history-btn');
+	if (clearHistoryBtn) {
+		clearHistoryBtn.addEventListener('click', () => {
+			if (
+				confirm(
+					'Are you sure you want to clear all history entries? This cannot be undone.',
+				)
+			) {
+				localStorage.removeItem('workTimeHistory');
+				loadHistoryViewer();
+				alert('History cleared');
+			}
+		});
+	}
+
+	// Delegate delete clicks from viewer
+	const viewer = document.getElementById('history-viewer');
+	if (viewer) {
+		viewer.addEventListener('click', (e) => {
+			const del =
+				e.target.closest && e.target.closest('.delete-history-btn');
+			if (del && del.dataset && del.dataset.date) {
+				const date = del.dataset.date;
+				if (confirm('Delete this history entry?')) {
+					const history = loadHistory();
+					const idx = history.findIndex(
+						(item) => item && item.date === date,
+					);
+					if (idx !== -1) {
+						history.splice(idx, 1);
+						saveHistory(history);
+						loadHistoryViewer();
+						alert('Entry deleted');
+					} else {
+						alert('Entry not found');
+					}
+				}
+				return;
+			}
+
+			const edit =
+				e.target.closest && e.target.closest('.edit-history-btn');
+			if (edit && edit.dataset && edit.dataset.date) {
+				startEditEntry(edit.dataset.date);
+				return;
+			}
+		});
+	}
+
+	loadHistoryViewer();
+});
 
 // PWA Install Prompt
 let deferredPrompt;
@@ -68,7 +345,7 @@ const htmlElement = document.documentElement;
 // Check for saved theme preference or default to system preference
 const savedTheme = localStorage.getItem('theme');
 const systemPrefersDark = window.matchMedia(
-	'(prefers-color-scheme: dark)'
+	'(prefers-color-scheme: dark)',
 ).matches;
 
 // Set initial theme
@@ -235,6 +512,57 @@ function formatDuration(hours) {
 	return `${h}h ${m}m`;
 }
 
+// Parse a time string into minutes since midnight.
+// Accepts formats: "HH:MM", "H:MM", and "h:mm AM/PM" (with or without space).
+function parseTimeToMinutes(timeStr) {
+	if (!timeStr || typeof timeStr !== 'string') return NaN;
+	const s = timeStr.trim();
+
+	// Match formats with AM/PM
+	const ampmMatch = s.match(/^(\d{1,2}):(\d{2})\s*([ap]m)$/i);
+	if (ampmMatch) {
+		let hours = parseInt(ampmMatch[1], 10);
+		const minutes = parseInt(ampmMatch[2], 10);
+		const ampm = ampmMatch[3].toLowerCase();
+		if (ampm === 'am') {
+			if (hours === 12) hours = 0;
+		} else {
+			if (hours !== 12) hours = (hours % 12) + 12;
+		}
+		return hours * 60 + minutes;
+	}
+
+	// Match 24-hour format HH:MM or H:MM
+	const hhmmMatch = s.match(/^(\d{1,2}):(\d{2})$/);
+	if (hhmmMatch) {
+		const hours = parseInt(hhmmMatch[1], 10);
+		const minutes = parseInt(hhmmMatch[2], 10);
+		return hours * 60 + minutes;
+	}
+
+	// Match plain hours like "8" or "8.5"
+	const num = parseFloat(s.replace(',', '.'));
+	if (!isNaN(num)) {
+		return Math.round(num * 60);
+	}
+
+	return NaN;
+}
+
+// Parse the target/minimum time into decimal hours.
+// Accepts "HH:MM", "H:MM", "h:mm AM/PM", or numeric hours ("8" or "8.5").
+function parseTargetToHours(timeStr) {
+	if (!timeStr) return NaN;
+	// If contains ':' or AM/PM, parse as time and convert
+	if (timeStr.indexOf(':') !== -1 || /am|pm/i.test(timeStr)) {
+		const mins = parseTimeToMinutes(timeStr);
+		return isNaN(mins) ? NaN : mins / 60;
+	}
+	// Otherwise try numeric hours
+	const num = parseFloat(timeStr.replace(',', '.'));
+	return isNaN(num) ? NaN : num;
+}
+
 function updateSessionDuration(sessionId, duration) {
 	const element = document.getElementById(sessionId);
 	if (element) {
@@ -253,7 +581,7 @@ function calculateWorkingTime() {
 		document.getElementById('morning-start-time').value;
 	const morningEndTime = document.getElementById('morning-end-time').value;
 	const afternoonStartTime = document.getElementById(
-		'afternoon-start-time'
+		'afternoon-start-time',
 	).value;
 	const afternoonEndTime =
 		document.getElementById('afternoon-end-time').value;
@@ -271,22 +599,38 @@ function calculateWorkingTime() {
 	) {
 		resultCard.className = 'result-card';
 		resultCard.innerHTML = `
-      <div class="result-text">Enter your work times to see results</div>
-    `;
+			<div class="result-text">Enter your work times to see results</div>
+		`;
 		progressBar.style.width = '0%';
 		return;
 	}
 
-	const morningStart = new Date(`1970-01-01T${morningStartTime}:00`);
-	const morningEnd = new Date(`1970-01-01T${morningEndTime}:00`);
-	const afternoonStart = new Date(`1970-01-01T${afternoonStartTime}:00`);
-	const afternoonEnd = new Date(`1970-01-01T${afternoonEndTime}:00`);
-	const minTimeParts = minimumTime.split(':');
-	const minTimeInHours =
-		parseInt(minTimeParts[0]) + parseInt(minTimeParts[1]) / 60;
+	// Parse times into minutes to avoid Date parsing differences across browsers
+	const morningStartMins = parseTimeToMinutes(morningStartTime);
+	const morningEndMins = parseTimeToMinutes(morningEndTime);
+	const afternoonStartMins = parseTimeToMinutes(afternoonStartTime);
+	const afternoonEndMins = parseTimeToMinutes(afternoonEndTime);
+	const minTimeInHours = parseTargetToHours(minimumTime);
 
-	const morningDiff = (morningEnd - morningStart) / (1000 * 60 * 60);
-	const afternoonDiff = (afternoonEnd - afternoonStart) / (1000 * 60 * 60);
+	if (
+		[
+			morningStartMins,
+			morningEndMins,
+			afternoonStartMins,
+			afternoonEndMins,
+		].some((v) => isNaN(v)) ||
+		isNaN(minTimeInHours)
+	) {
+		resultCard.className = 'result-card error';
+		resultCard.innerHTML = `
+			<div class="result-text">One or more time fields are invalid. Please check your entries.</div>
+		`;
+		progressBar.style.width = '0%';
+		return;
+	}
+
+	const morningDiff = (morningEndMins - morningStartMins) / 60;
+	const afternoonDiff = (afternoonEndMins - afternoonStartMins) / 60;
 	const totalDiff = morningDiff + afternoonDiff;
 
 	// Update session durations
@@ -296,16 +640,19 @@ function calculateWorkingTime() {
 	if (morningDiff < 0 || afternoonDiff < 0) {
 		resultCard.className = 'result-card error';
 		resultCard.innerHTML = `
-      <div class="result-text">End times must be after start times. Please check your entries.</div>
-    `;
+			<div class="result-text">End times must be after start times. Please check your entries.</div>
+		`;
 		progressBar.style.width = '0%';
 		return;
 	}
+
 	const formattedTotal = formatDuration(totalDiff);
 
 	// Calculate progress percentage
 	const progressPercent = Math.min((totalDiff / minTimeInHours) * 100, 100);
 	progressBar.style.width = `${progressPercent}%`;
+
+	const targetDisplay = formatDuration(minTimeInHours);
 
 	if (totalDiff >= minTimeInHours) {
 		// Met or exceeded minimum
@@ -314,26 +661,24 @@ function calculateWorkingTime() {
 		resultCard.className = 'result-card success';
 		if (overtime > 0.01) {
 			resultCard.innerHTML = `
-        <div class="result-text">
-          <div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-            Total: <span class="result-success">${formattedTotal}</span>
-          </div>
-          <div>
-            Great job! You've exceeded your target by <span class="result-success">${formatDuration(
-				overtime
-			)}</span>
-          </div>
-        </div>
-      `;
+				<div class="result-text">
+					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
+						Total: <span class="result-success">${formattedTotal}</span>
+					</div>
+					<div>
+						Great job! You've exceeded your target by <span class="result-success">${formatDuration(overtime)}</span>
+					</div>
+				</div>
+			`;
 		} else {
 			resultCard.innerHTML = `
-        <div class="result-text">
-          <div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-            Total: <span class="result-success">${formattedTotal}</span>
-          </div>
-          <div>Perfect! You've met your target hours exactly.</div>
-        </div>
-      `;
+				<div class="result-text">
+					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
+						Total: <span class="result-success">${formattedTotal}</span>
+					</div>
+					<div>Perfect! You've met your target hours exactly.</div>
+				</div>
+			`;
 		}
 	} else {
 		// Below minimum
@@ -341,19 +686,15 @@ function calculateWorkingTime() {
 
 		resultCard.className = 'result-card warning';
 		resultCard.innerHTML = `
-      <div class="result-text">
-        <div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-          Total: <span class="result-highlight">${formattedTotal}</span>
-        </div>
-        <div>
-          You need <span class="result-warning">${formatDuration(
-				hoursNeeded
-			)}</span> more to reach your target of ${minTimeParts[0]}:${
-			minTimeParts[1]
-		}
-        </div>
-      </div>
-    `;
+			<div class="result-text">
+				<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
+					Total: <span class="result-highlight">${formattedTotal}</span>
+				</div>
+				<div>
+					You need <span class="result-warning">${formatDuration(hoursNeeded)}</span> more to reach your target of ${targetDisplay}
+				</div>
+			</div>
+		`;
 	}
 }
 
