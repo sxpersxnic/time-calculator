@@ -2,7 +2,7 @@
 if ('serviceWorker' in navigator) {
 	window.addEventListener('load', () => {
 		navigator.serviceWorker
-			.register('/service-worker.js')
+			.register('/time-calculator/service-worker.js')
 			.then((registration) => {
 				console.log(
 					'Service Worker registered successfully:',
@@ -46,32 +46,53 @@ function saveHistoryEntry() {
 	const afternoonEnd = document.getElementById('afternoon-end-time').value;
 	const minimumTime = document.getElementById('minimum-time').value;
 
-	const ms = parseTimeToMinutes(morningStart);
-	const me = parseTimeToMinutes(morningEnd);
-	const as = parseTimeToMinutes(afternoonStart);
-	const ae = parseTimeToMinutes(afternoonEnd);
-	const minHours = parseTargetToHours(minimumTime);
+	// Build sessions list including extra sessions
+	const extra = getExtraSessionsFromDOM();
+	const sessions = [];
+	if (morningStart || morningEnd)
+		sessions.push({ start: morningStart, end: morningEnd });
+	if (afternoonStart || afternoonEnd)
+		sessions.push({ start: afternoonStart, end: afternoonEnd });
+	extra.forEach((s) => {
+		if (s.start || s.end) sessions.push(s);
+	});
 
-	if ([ms, me, as, ae].some((v) => isNaN(v)) || isNaN(minHours)) {
+	const parsed = sessions.map((s) => ({
+		startM: parseTimeToMinutes(s.start || ''),
+		endM: parseTimeToMinutes(s.end || ''),
+	}));
+	const minHours = parseTargetToHours(minimumTime);
+	if (
+		parsed.length === 0 ||
+		parsed.some((p) => isNaN(p.startM) || isNaN(p.endM)) ||
+		isNaN(minHours)
+	) {
 		alert('Cannot save entry: one or more time fields are invalid.');
 		return;
 	}
-
-	const morningHours = (me - ms) / 60;
-	const afternoonHours = (ae - as) / 60;
-	const totalHours = morningHours + afternoonHours;
-	// apply global minimum-break penalty when saving
+	if (parsed.some((p) => p.endM <= p.startM)) {
+		alert('Cannot save entry: end time must be after start time.');
+		return;
+	}
+	parsed.sort((a, b) => a.startM - b.startM);
+	const totalWorkMins = parsed.reduce((s, p) => s + (p.endM - p.startM), 0);
+	const breaks = [];
+	for (let i = 1; i < parsed.length; i++) {
+		const g = Math.max(0, parsed[i].startM - parsed[i - 1].endM);
+		breaks.push(g);
+	}
 	const configuredBreakMins =
 		parseInt(document.getElementById('minimum-break-mins').value, 10) || 0;
-	const actualBreakMins = as - me;
-	let adjustedTotalHours = totalHours;
-	if (!isNaN(actualBreakMins) && actualBreakMins < configuredBreakMins) {
-		adjustedTotalHours = Math.max(
-			0,
-			totalHours - (configuredBreakMins - actualBreakMins) / 60,
-		);
-	}
+	let penaltyMins = 0;
+	breaks.forEach((g) => {
+		if (g < configuredBreakMins) penaltyMins += configuredBreakMins - g;
+	});
+	const adjustedTotalHours = Math.max(0, (totalWorkMins - penaltyMins) / 60);
 	const overtime = adjustedTotalHours - minHours;
+	const morningHours =
+		parsed.length > 0 ? (parsed[0].endM - parsed[0].startM) / 60 : 0;
+	const afternoonHours =
+		parsed.length > 1 ? (parsed[1].endM - parsed[1].startM) / 60 : 0;
 
 	const entry = {
 		date: editingDate ? editingDate : new Date().toISOString(),
@@ -80,13 +101,9 @@ function saveHistoryEntry() {
 		totalHours: Number(adjustedTotalHours.toFixed(3)),
 		overtime: Number(overtime.toFixed(3)),
 		raw: {
-			morningStart,
-			morningEnd,
-			afternoonStart,
-			afternoonEnd,
+			sessions: sessions,
 			minimumTime,
 			configuredBreakMins,
-			actualBreakMins,
 		},
 	};
 
@@ -253,7 +270,7 @@ function loadHistoryViewer() {
 	// Show latest 10 entries
 	const last = history.slice(-10).reverse();
 	viewer.innerHTML = last
-		.map((h, idx) => {
+		.map((h) => {
 			const date = new Date(h.date).toLocaleString();
 			// Use data-date to identify the entry for actions
 			return (
@@ -798,6 +815,17 @@ document.addEventListener('DOMContentLoaded', function () {
 		minBreakInput.addEventListener('input', calculateWorkingTime);
 	}
 
+	// Add session button
+	const addSessionBtn = document.getElementById('add-session-btn');
+	if (addSessionBtn) {
+		addSessionBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			addSessionRow('', '');
+			saveData();
+			calculateWorkingTime();
+		});
+	}
+
 	// Clear data button handler
 	clearDataBtn.addEventListener('click', () => {
 		if (confirm('Are you sure you want to clear all saved data?')) {
@@ -871,6 +899,8 @@ function saveData() {
 		minimumBreakMinutes:
 			parseInt(document.getElementById('minimum-break-mins').value, 10) ||
 			0,
+		// persist extra dynamic sessions
+		extraSessions: getExtraSessionsFromDOM(),
 		lastSaved: new Date().toISOString(),
 	};
 
@@ -913,6 +943,20 @@ function loadSavedData() {
 			if (typeof data.minimumBreakMinutes !== 'undefined') {
 				document.getElementById('minimum-break-mins').value =
 					data.minimumBreakMinutes;
+			}
+
+			// restore extra sessions if any
+			if (
+				Array.isArray(data.extraSessions) &&
+				data.extraSessions.length > 0
+			) {
+				const container = document.getElementById(
+					'extra-sessions-list',
+				);
+				if (container) container.innerHTML = '';
+				data.extraSessions.forEach((s) => {
+					addSessionRow(s.start || '', s.end || '');
+				});
 			}
 
 			console.log('Data loaded from localStorage');
@@ -985,6 +1029,66 @@ function parseTargetToHours(timeStr) {
 	return isNaN(num) ? NaN : num;
 }
 
+// --- Dynamic extra sessions helpers ---
+function addSessionRow(startVal = '', endVal = '') {
+	const container = document.getElementById('extra-sessions-list');
+	if (!container) return;
+	const row = document.createElement('div');
+	row.className = 'extra-session-row';
+	row.style.display = 'flex';
+	row.style.gap = '0.5rem';
+	row.style.alignItems = 'center';
+
+	const start = document.createElement('input');
+	start.type = 'time';
+	start.className = 'extra-start';
+	start.value = startVal;
+	start.addEventListener('change', () => {
+		saveData();
+		calculateWorkingTime();
+	});
+
+	const arrow = document.createElement('div');
+	arrow.textContent = '→';
+	arrow.style.padding = '0 0.25rem';
+
+	const end = document.createElement('input');
+	end.type = 'time';
+	end.className = 'extra-end';
+	end.value = endVal;
+	end.addEventListener('change', () => {
+		saveData();
+		calculateWorkingTime();
+	});
+
+	const removeBtn = document.createElement('button');
+	removeBtn.type = 'button';
+	removeBtn.className = 'clear-data-btn remove-session-btn';
+	removeBtn.textContent = 'Remove';
+	removeBtn.addEventListener('click', () => {
+		row.remove();
+		saveData();
+		calculateWorkingTime();
+	});
+
+	row.appendChild(start);
+	row.appendChild(arrow);
+	row.appendChild(end);
+	row.appendChild(removeBtn);
+	container.appendChild(row);
+}
+
+function getExtraSessionsFromDOM() {
+	const rows = document.querySelectorAll(
+		'#extra-sessions-list .extra-session-row',
+	);
+	return Array.from(rows).map((r) => {
+		const s = (r.querySelector('.extra-start') || {}).value || '';
+		const e = (r.querySelector('.extra-end') || {}).value || '';
+		return { start: s, end: e };
+	});
+}
+
 function updateSessionDuration(sessionId, duration) {
 	const element = document.getElementById(sessionId);
 	if (element) {
@@ -1008,17 +1112,20 @@ function calculateWorkingTime() {
 	const afternoonEndTime =
 		document.getElementById('afternoon-end-time').value;
 	const minimumTime = document.getElementById('minimum-time').value;
+	const extraSessions = getExtraSessionsFromDOM();
+	const rawSessions = [];
+	if (morningStartTime || morningEndTime)
+		rawSessions.push({ start: morningStartTime, end: morningEndTime });
+	if (afternoonStartTime || afternoonEndTime)
+		rawSessions.push({ start: afternoonStartTime, end: afternoonEndTime });
+	extraSessions.forEach((s) => {
+		if (s.start || s.end) rawSessions.push(s);
+	});
 
 	const resultCard = document.getElementById('result');
 	const progressBar = document.getElementById('progress-bar');
 
-	if (
-		!morningStartTime ||
-		!morningEndTime ||
-		!afternoonStartTime ||
-		!afternoonEndTime ||
-		!minimumTime
-	) {
+	if (!rawSessions || rawSessions.length === 0 || !minimumTime) {
 		resultCard.className = 'result-card';
 		resultCard.innerHTML = `
 			<div class="result-text">Enter your work times to see results</div>
@@ -1027,20 +1134,16 @@ function calculateWorkingTime() {
 		return;
 	}
 
-	// Parse times into minutes to avoid Date parsing differences across browsers
-	const morningStartMins = parseTimeToMinutes(morningStartTime);
-	const morningEndMins = parseTimeToMinutes(morningEndTime);
-	const afternoonStartMins = parseTimeToMinutes(afternoonStartTime);
-	const afternoonEndMins = parseTimeToMinutes(afternoonEndTime);
+	const sessionsParsed = rawSessions.map((s) => {
+		return {
+			startM: parseTimeToMinutes(s.start || ''),
+			endM: parseTimeToMinutes(s.end || ''),
+		};
+	});
 	const minTimeInHours = parseTargetToHours(minimumTime);
 
 	if (
-		[
-			morningStartMins,
-			morningEndMins,
-			afternoonStartMins,
-			afternoonEndMins,
-		].some((v) => isNaN(v)) ||
+		sessionsParsed.some((s) => isNaN(s.startM) || isNaN(s.endM)) ||
 		isNaN(minTimeInHours)
 	) {
 		resultCard.className = 'result-card error';
@@ -1051,26 +1154,7 @@ function calculateWorkingTime() {
 		return;
 	}
 
-	const morningDiff = (morningEndMins - morningStartMins) / 60;
-	const afternoonDiff = (afternoonEndMins - afternoonStartMins) / 60;
-	const totalDiff = morningDiff + afternoonDiff;
-
-	// apply global minimum-break penalty
-	const minimumBreakMins =
-		parseInt(document.getElementById('minimum-break-mins').value, 10) || 0;
-	const actualBreakMins = afternoonStartMins - morningEndMins;
-	let penaltyHours = 0;
-	let adjustedTotal = totalDiff;
-	if (!isNaN(actualBreakMins) && actualBreakMins < minimumBreakMins) {
-		penaltyHours = (minimumBreakMins - actualBreakMins) / 60;
-		adjustedTotal = Math.max(0, totalDiff - penaltyHours);
-	}
-
-	// Update session durations
-	updateSessionDuration('morning-duration', morningDiff);
-	updateSessionDuration('afternoon-duration', afternoonDiff);
-
-	if (morningDiff < 0 || afternoonDiff < 0) {
+	if (sessionsParsed.some((s) => s.endM <= s.startM)) {
 		resultCard.className = 'result-card error';
 		resultCard.innerHTML = `
 			<div class="result-text">End times must be after start times. Please check your entries.</div>
@@ -1078,6 +1162,42 @@ function calculateWorkingTime() {
 		progressBar.style.width = '0%';
 		return;
 	}
+
+	sessionsParsed.sort((a, b) => a.startM - b.startM);
+
+	const totalWorkMins = sessionsParsed.reduce(
+		(sum, s) => sum + (s.endM - s.startM),
+		0,
+	);
+	const breaks = [];
+	for (let i = 1; i < sessionsParsed.length; i++) {
+		const prev = sessionsParsed[i - 1];
+		const cur = sessionsParsed[i];
+		const gap = Math.max(0, cur.startM - prev.endM);
+		breaks.push(gap);
+	}
+	const minimumBreakMins =
+		parseInt(document.getElementById('minimum-break-mins').value, 10) || 0;
+	let penaltyMins = 0;
+	breaks.forEach((g) => {
+		if (g < minimumBreakMins) penaltyMins += minimumBreakMins - g;
+	});
+
+	const totalDiff = totalWorkMins / 60;
+	const penaltyHours = penaltyMins / 60;
+	const adjustedTotal = Math.max(0, totalDiff - penaltyHours);
+
+	// Update first-two session duration displays for compatibility
+	const firstDiff =
+		sessionsParsed.length > 0
+			? (sessionsParsed[0].endM - sessionsParsed[0].startM) / 60
+			: 0;
+	const secondDiff =
+		sessionsParsed.length > 1
+			? (sessionsParsed[1].endM - sessionsParsed[1].startM) / 60
+			: 0;
+	updateSessionDuration('morning-duration', firstDiff);
+	updateSessionDuration('afternoon-duration', secondDiff);
 
 	const formattedTotal = formatDuration(adjustedTotal);
 
@@ -1091,46 +1211,31 @@ function calculateWorkingTime() {
 	const targetDisplay = formatDuration(minTimeInHours);
 
 	// Compare adjusted total (after penalty) with minimum
-	if (adjustedTotal >= minTimeInHours) {
-		// Met or exceeded minimum
-		const overtime = adjustedTotal - minTimeInHours;
+	// Show signed difference and explicit needed/achieved amounts
+	const diff = adjustedTotal - minTimeInHours; // positive => overtime achieved, negative => needed
+	const diffSign = diff >= 0 ? '+' : '-';
+	const diffAbs = Math.abs(diff);
+	const diffFormatted = formatDuration(diffAbs);
 
+	if (diff >= 0) {
+		// Overtime achieved
 		resultCard.className = 'result-card success';
-		if (overtime > 0.01) {
-			resultCard.innerHTML = `
-				<div class="result-text">
-					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-						Total: <span class="result-success">${formattedTotal}</span>
-					</div>
-					<div>
-						Great job! You've exceeded your target by <span class="result-success">${formatDuration(overtime)}</span>
-					</div>
-				</div>
-			`;
-		} else {
-			resultCard.innerHTML = `
-				<div class="result-text">
-					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-						Total: <span class="result-success">${formattedTotal}</span>
-					</div>
-					<div>Perfect! You've met your target hours exactly.</div>
-				</div>
-			`;
-		}
+		resultCard.innerHTML = `
+			<div class="result-text">
+				<div style="font-size:1.25rem;margin-bottom:0.5rem;">Total: <span class="result-success">${formattedTotal}</span></div>
+				<div>Overtime achieved: <span class="result-success">${formatDuration(diff)}</span></div>
+				<div style="font-size:0.9rem;color:var(--text-muted);margin-top:0.5rem">Difference: ${diffSign}${diffFormatted}</div>
+			</div>
+		`;
 	} else {
-		// Below minimum
-		const hoursNeeded = minTimeInHours - adjustedTotal;
-
+		// Below target — show how much is needed
 		resultCard.className = 'result-card warning';
 		resultCard.innerHTML = `
 			<div class="result-text">
-				<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-					Total: <span class="result-highlight">${formattedTotal}</span>
-					${penaltyHours > 0 ? `<div style="font-size:0.85rem;color:var(--text-muted)">Break penalty applied: ${formatDuration(penaltyHours)}</div>` : ''}
-				</div>
-				<div>
-					You need <span class="result-warning">${formatDuration(hoursNeeded)}</span> more to reach your target of ${targetDisplay}
-				</div>
+				<div style="font-size:1.25rem;margin-bottom:0.5rem;">Total: <span class="result-highlight">${formattedTotal}</span></div>
+				<div>You need <span class="result-warning">${formatDuration(diffAbs)}</span> more to reach your target of ${targetDisplay}</div>
+				${penaltyHours > 0 ? `<div style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem">Break penalty applied: ${formatDuration(penaltyHours)}</div>` : ''}
+				<div style="font-size:0.9rem;color:var(--text-muted);margin-top:0.25rem">Difference: ${diffSign}${diffFormatted}</div>
 			</div>
 		`;
 	}
