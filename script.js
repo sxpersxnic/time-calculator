@@ -60,13 +60,24 @@ function saveHistoryEntry() {
 	const morningHours = (me - ms) / 60;
 	const afternoonHours = (ae - as) / 60;
 	const totalHours = morningHours + afternoonHours;
-	const overtime = totalHours - minHours;
+	// apply global minimum-break penalty when saving
+	const configuredBreakMins =
+		parseInt(document.getElementById('minimum-break-mins').value, 10) || 0;
+	const actualBreakMins = as - me;
+	let adjustedTotalHours = totalHours;
+	if (!isNaN(actualBreakMins) && actualBreakMins < configuredBreakMins) {
+		adjustedTotalHours = Math.max(
+			0,
+			totalHours - (configuredBreakMins - actualBreakMins) / 60,
+		);
+	}
+	const overtime = adjustedTotalHours - minHours;
 
 	const entry = {
 		date: editingDate ? editingDate : new Date().toISOString(),
 		morningHours: Number(morningHours.toFixed(3)),
 		afternoonHours: Number(afternoonHours.toFixed(3)),
-		totalHours: Number(totalHours.toFixed(3)),
+		totalHours: Number(adjustedTotalHours.toFixed(3)),
 		overtime: Number(overtime.toFixed(3)),
 		raw: {
 			morningStart,
@@ -74,10 +85,31 @@ function saveHistoryEntry() {
 			afternoonStart,
 			afternoonEnd,
 			minimumTime,
+			configuredBreakMins,
+			actualBreakMins,
 		},
 	};
 
 	const history = loadHistory();
+	// Prevent duplicate-day saves: if an entry for the same YYYY-MM-DD exists, prompt to overwrite
+	const entryDateKey =
+		(entry.date && entry.date.slice(0, 10)) ||
+		new Date().toISOString().slice(0, 10);
+	const existingIndex = history.findIndex(
+		(h) => h && h.date && h.date.slice(0, 10) === entryDateKey,
+	);
+	if (!editingDate && existingIndex !== -1) {
+		const overwrite = confirm(
+			`An entry for ${entryDateKey} already exists. Overwrite it?`,
+		);
+		if (!overwrite) return; // abort save
+		history[existingIndex] = entry;
+		saveHistory(history);
+		loadHistoryViewer();
+		alert('Existing entry overwritten');
+		return;
+	}
+
 	if (editingDate) {
 		const idx = history.findIndex(
 			(item) => item && item.date === editingDate,
@@ -104,6 +136,18 @@ function saveHistoryEntry() {
 		history.splice(0, history.length - maxEntries);
 	saveHistory(history);
 	loadHistoryViewer();
+}
+
+// Time format preference
+function loadTimeFormatPreference() {
+	const pref = localStorage.getItem('timeFormat') || '24';
+	const select = document.getElementById('time-format-select');
+	if (select) select.value = pref;
+	return pref;
+}
+
+function saveTimeFormatPreference(val) {
+	localStorage.setItem('timeFormat', val);
 }
 
 function startEditEntry(dateISO) {
@@ -211,15 +255,352 @@ function loadHistoryViewer() {
 	viewer.innerHTML = last
 		.map((h, idx) => {
 			const date = new Date(h.date).toLocaleString();
-			// Use data-date to identify the entry for deletion
+			// Use data-date to identify the entry for actions
 			return (
 				`<div style="display:flex;align-items:center;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border-subtle);">` +
 				`<div><strong>${date}</strong> — ${h.totalHours}h (OT: ${h.overtime >= 0 ? '+' : ''}${h.overtime}h)</div>` +
-				`<div><button class="clear-data-btn delete-history-btn" data-date="${h.date}">Delete</button></div>` +
+				`<div style="display:flex;gap:0.5rem;">
+					<button class="clear-data-btn edit-history-btn" data-date="${h.date}">Edit</button>
+					<button class="clear-data-btn delete-history-btn" data-date="${h.date}">Delete</button>
+				</div>` +
 				`</div>`
 			);
 		})
 		.join('');
+
+	// Update aggregates whenever history viewer is refreshed
+	if (typeof computeAggregates === 'function') computeAggregates();
+}
+
+// Compute aggregates and render into aggregates card
+function computeAggregates() {
+	const history = loadHistory();
+	const now = new Date();
+	const startOfWeek = new Date(now);
+	const dow = (now.getDay() + 6) % 7; // Monday=0
+	startOfWeek.setDate(now.getDate() - dow);
+	startOfWeek.setHours(0, 0, 0, 0);
+
+	const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+	const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+	let saldo = 0;
+	let weekTotal = 0;
+	let monthTotal = 0;
+	let yearTotal = 0;
+	let totalEntries = 0;
+	let totalBreakMins = 0;
+	let breakCount = 0;
+
+	history.forEach((entry) => {
+		if (!entry || !entry.date) return;
+		const d = new Date(entry.date);
+		const th = Number(entry.totalHours) || 0;
+		const ot = Number(entry.overtime) || 0;
+		saldo += ot;
+
+		if (d >= startOfWeek) weekTotal += th;
+		if (d >= startOfMonth) monthTotal += th;
+		if (d >= startOfYear) yearTotal += th;
+
+		totalEntries += 1;
+
+		// break minutes: prefer raw.actualBreakMins or raw.actualBreakMins-like keys
+		const raw = entry.raw || {};
+		let b = null;
+		if (typeof raw.actualBreakMins !== 'undefined')
+			b = Number(raw.actualBreakMins);
+		else if (
+			typeof raw.actualBreakMins === 'undefined' &&
+			typeof raw.actualBreakMins !== 'undefined'
+		)
+			b = Number(raw.actualBreakMins);
+		else if (typeof raw.breakMins !== 'undefined')
+			b = Number(raw.breakMins);
+		else if (raw.morningEnd && raw.afternoonStart) {
+			const me = parseTimeToMinutes(raw.morningEnd);
+			const as = parseTimeToMinutes(raw.afternoonStart);
+			if (!isNaN(me) && !isNaN(as)) b = Math.max(0, as - me);
+		}
+		if (b !== null && !isNaN(b)) {
+			totalBreakMins += b;
+			breakCount += 1;
+		}
+	});
+
+	const avgPerEntry = totalEntries
+		? history.reduce((s, e) => s + (Number(e.totalHours) || 0), 0) /
+			totalEntries
+		: 0;
+	const avgBreak = breakCount ? totalBreakMins / breakCount : 0;
+
+	// Render
+	const aggSaldo = document.getElementById('agg-saldo');
+	const aggWeek = document.getElementById('agg-week');
+	const aggMonth = document.getElementById('agg-month');
+	const aggYear = document.getElementById('agg-year');
+	const aggAvg = document.getElementById('agg-avg');
+	const aggAvgBreak = document.getElementById('agg-avg-break');
+
+	if (aggSaldo)
+		aggSaldo.textContent = `Total Overtime (saldo): ${formatDuration(saldo)}`;
+	if (aggWeek)
+		aggWeek.textContent = `This Week: ${formatDuration(weekTotal)}`;
+	if (aggMonth)
+		aggMonth.textContent = `This Month: ${formatDuration(monthTotal)}`;
+	if (aggYear)
+		aggYear.textContent = `This Year: ${formatDuration(yearTotal)}`;
+	if (aggAvg)
+		aggAvg.textContent = `Average per Entry: ${formatDuration(avgPerEntry)}`;
+	if (aggAvgBreak)
+		aggAvgBreak.textContent = `Average Break: ${Math.round(avgBreak)} min`;
+}
+
+// Chart: weekly worktime bar chart using Chart.js
+let weeklyChart = null;
+function renderWeeklyChart() {
+	const history = loadHistory();
+	const now = new Date();
+	// build labels for the last 7 days (Mon-Sun ending today)
+	const labels = [];
+	const totals = [];
+	for (let i = 6; i >= 0; i--) {
+		const d = new Date(now);
+		d.setDate(now.getDate() - i);
+		d.setHours(0, 0, 0, 0);
+		labels.push(
+			d.toLocaleDateString(undefined, {
+				weekday: 'short',
+				month: 'short',
+				day: 'numeric',
+			}),
+		);
+		const dayKey = d.toISOString().slice(0, 10);
+		const dayTotal = history.reduce((sum, entry) => {
+			if (!entry || !entry.date) return sum;
+			if (entry.date.slice(0, 10) === dayKey)
+				return sum + (Number(entry.totalHours) || 0);
+			return sum;
+		}, 0);
+		totals.push(Number(dayTotal.toFixed(3)));
+	}
+
+	const ctx = document.getElementById('weeklyChart').getContext('2d');
+	if (weeklyChart) {
+		weeklyChart.data.labels = labels;
+		weeklyChart.data.datasets[0].data = totals;
+		weeklyChart.update();
+		return;
+	}
+
+	weeklyChart = new Chart(ctx, {
+		type: 'bar',
+		data: {
+			labels,
+			datasets: [
+				{
+					label: 'Work hours',
+					data: totals,
+					backgroundColor: 'rgba(66,153,225,0.6)',
+				},
+			],
+		},
+		options: {
+			scales: {
+				y: { beginAtZero: true },
+			},
+			plugins: { legend: { display: false } },
+		},
+	});
+}
+
+// Re-render chart when history changes
+document.addEventListener('DOMContentLoaded', () => {
+	// render initially
+	renderWeeklyChart();
+	// hook into history viewer updates by overriding loadHistoryViewer call sites
+	// We call render after loadHistoryViewer is called elsewhere
+	const originalLoad = loadHistoryViewer;
+	loadHistoryViewer = function () {
+		originalLoad();
+		renderWeeklyChart();
+	};
+});
+// Modal editing for history entries
+let modalEditingKey = null;
+
+function openHistoryEditModal(dateISO) {
+	const history = loadHistory();
+	const entry = history.find((item) => item && item.date === dateISO);
+	if (!entry) {
+		alert('Entry not found');
+		return;
+	}
+	modalEditingKey = dateISO;
+	const raw = entry.raw || {};
+	// Date input value (YYYY-MM-DD)
+	const dateInput = document.getElementById('modal-date');
+	const d = new Date(entry.date);
+	// Use local date portion
+	const isoDate = d.toISOString().slice(0, 10);
+	if (dateInput) dateInput.value = isoDate;
+
+	if (raw.morningStart)
+		document.getElementById('modal-morning-start').value = raw.morningStart;
+	if (raw.morningEnd)
+		document.getElementById('modal-morning-end').value = raw.morningEnd;
+	if (raw.afternoonStart)
+		document.getElementById('modal-afternoon-start').value =
+			raw.afternoonStart;
+	if (raw.afternoonEnd)
+		document.getElementById('modal-afternoon-end').value = raw.afternoonEnd;
+	if (raw.minimumTime)
+		document.getElementById('modal-minimum-time').value = raw.minimumTime;
+
+	// compute break minutes if possible
+	const ms = parseTimeToMinutes(raw.morningEnd || '');
+	const as = parseTimeToMinutes(raw.afternoonStart || '');
+	const breakMins = isNaN(ms) || isNaN(as) ? 30 : Math.max(0, as - ms);
+	const breakInput = document.getElementById('modal-break-mins');
+	if (breakInput) breakInput.value = breakMins;
+
+	const modal = document.getElementById('history-modal');
+	if (modal) modal.setAttribute('aria-hidden', 'false');
+	// focus first input
+	setTimeout(() => {
+		document.getElementById('modal-morning-start').focus();
+	}, 50);
+}
+
+function closeHistoryModal() {
+	modalEditingKey = null;
+	const modal = document.getElementById('history-modal');
+	if (modal) modal.setAttribute('aria-hidden', 'true');
+}
+
+// Initialize modal listeners
+function initHistoryModalHandlers() {
+	const form = document.getElementById('history-modal-form');
+	const cancelBtn = document.getElementById('modal-cancel-btn');
+	const deleteBtn = document.getElementById('modal-delete-btn');
+
+	if (form) {
+		form.addEventListener('submit', (e) => {
+			e.preventDefault();
+			// Read values
+			const dateVal = document.getElementById('modal-date').value; // YYYY-MM-DD
+			const morningStart = document.getElementById(
+				'modal-morning-start',
+			).value;
+			const morningEnd =
+				document.getElementById('modal-morning-end').value;
+			const afternoonStart = document.getElementById(
+				'modal-afternoon-start',
+			).value;
+			const afternoonEnd = document.getElementById(
+				'modal-afternoon-end',
+			).value;
+			const minimumTime =
+				document.getElementById('modal-minimum-time').value;
+			const breakMins =
+				parseInt(
+					document.getElementById('modal-break-mins').value,
+					10,
+				) || 0;
+
+			const ms = parseTimeToMinutes(morningStart);
+			const me = parseTimeToMinutes(morningEnd);
+			const as = parseTimeToMinutes(afternoonStart);
+			const ae = parseTimeToMinutes(afternoonEnd);
+			const minHours = parseTargetToHours(minimumTime);
+
+			if ([ms, me, as, ae].some((v) => isNaN(v)) || isNaN(minHours)) {
+				alert('Cannot save: one or more fields are invalid.');
+				return;
+			}
+
+			const morningHours = (me - ms) / 60;
+			const afternoonHours = (ae - as) / 60;
+			let totalHours = morningHours + afternoonHours;
+			// apply break penalty if break between sessions is less than breakMins
+			const actualBreak = as - me;
+			if (actualBreak < breakMins) {
+				const penalty = (breakMins - actualBreak) / 60;
+				totalHours = Math.max(0, totalHours - penalty);
+			}
+
+			const overtime = totalHours - minHours;
+
+			const entry = {
+				date: dateVal + 'T00:00:00.000Z',
+				morningHours: Number(morningHours.toFixed(3)),
+				afternoonHours: Number(afternoonHours.toFixed(3)),
+				totalHours: Number(totalHours.toFixed(3)),
+				overtime: Number(overtime.toFixed(3)),
+				raw: {
+					morningStart,
+					morningEnd,
+					afternoonStart,
+					afternoonEnd,
+					minimumTime,
+					breakMins,
+				},
+			};
+
+			const history = loadHistory();
+			if (modalEditingKey) {
+				const idx = history.findIndex(
+					(item) => item && item.date === modalEditingKey,
+				);
+				if (idx !== -1) {
+					history[idx] = entry;
+				} else {
+					history.push(entry);
+				}
+			} else {
+				history.push(entry);
+			}
+			saveHistory(history);
+			loadHistoryViewer();
+			closeHistoryModal();
+			alert('Entry saved');
+		});
+	}
+
+	if (cancelBtn) {
+		cancelBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			closeHistoryModal();
+		});
+	}
+
+	if (deleteBtn) {
+		deleteBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			if (!modalEditingKey) return alert('No entry selected');
+			if (!confirm('Delete this history entry?')) return;
+			const history = loadHistory();
+			const idx = history.findIndex(
+				(item) => item && item.date === modalEditingKey,
+			);
+			if (idx !== -1) {
+				history.splice(idx, 1);
+				saveHistory(history);
+				loadHistoryViewer();
+				closeHistoryModal();
+				alert('Entry deleted');
+			} else {
+				alert('Entry not found');
+			}
+		});
+	}
+
+	// close on backdrop click or Esc
+	const backdrop = document.getElementById('history-modal-backdrop');
+	if (backdrop) backdrop.addEventListener('click', closeHistoryModal);
+	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') closeHistoryModal();
+	});
 }
 
 // Attach history UI handlers
@@ -283,11 +664,14 @@ document.addEventListener('DOMContentLoaded', function () {
 			const edit =
 				e.target.closest && e.target.closest('.edit-history-btn');
 			if (edit && edit.dataset && edit.dataset.date) {
-				startEditEntry(edit.dataset.date);
+				openHistoryEditModal(edit.dataset.date);
 				return;
 			}
 		});
 	}
+
+	// Initialize modal handlers for history editor
+	initHistoryModalHandlers();
 
 	loadHistoryViewer();
 });
@@ -371,6 +755,24 @@ document.addEventListener('DOMContentLoaded', function () {
 	const inputs = document.querySelectorAll('input[type="time"]');
 	const clearDataBtn = document.getElementById('clear-data-btn');
 
+	// Initialize time format selector
+	const timeFormatSelect = document.getElementById('time-format-select');
+	if (timeFormatSelect) {
+		// load saved preference
+		const pref = loadTimeFormatPreference();
+		timeFormatSelect.value = pref;
+		timeFormatSelect.addEventListener('change', (e) => {
+			saveTimeFormatPreference(e.target.value);
+			// Inform user
+			const help = document.getElementById('time-format-help');
+			if (help)
+				help.textContent =
+					e.target.value === '12'
+						? 'Inputs may display in 12-hour format; target/duration remain 24-hour/decimal.'
+						: 'Target/duration fields remain 24-hour/decimal for calculations.';
+		});
+	}
+
 	// Load saved data from localStorage
 	loadSavedData();
 
@@ -386,6 +788,16 @@ document.addEventListener('DOMContentLoaded', function () {
 		input.addEventListener('input', calculateWorkingTime);
 	});
 
+	// minimum break input should also trigger save & recalc
+	const minBreakInput = document.getElementById('minimum-break-mins');
+	if (minBreakInput) {
+		minBreakInput.addEventListener('change', () => {
+			saveData();
+			calculateWorkingTime();
+		});
+		minBreakInput.addEventListener('input', calculateWorkingTime);
+	}
+
 	// Clear data button handler
 	clearDataBtn.addEventListener('click', () => {
 		if (confirm('Are you sure you want to clear all saved data?')) {
@@ -396,6 +808,7 @@ document.addEventListener('DOMContentLoaded', function () {
 			document.getElementById('afternoon-start-time').value = '13:00';
 			document.getElementById('afternoon-end-time').value = '16:54';
 			document.getElementById('minimum-time').value = '08:24';
+			document.getElementById('minimum-break-mins').value = '30';
 			// Recalculate with default values
 			calculateWorkingTime();
 			// Update status
@@ -455,6 +868,9 @@ function saveData() {
 		afternoonStart: document.getElementById('afternoon-start-time').value,
 		afternoonEnd: document.getElementById('afternoon-end-time').value,
 		minimumTime: document.getElementById('minimum-time').value,
+		minimumBreakMinutes:
+			parseInt(document.getElementById('minimum-break-mins').value, 10) ||
+			0,
 		lastSaved: new Date().toISOString(),
 	};
 
@@ -491,6 +907,12 @@ function loadSavedData() {
 			if (data.minimumTime) {
 				document.getElementById('minimum-time').value =
 					data.minimumTime;
+			}
+
+			// restore minimum break minutes
+			if (typeof data.minimumBreakMinutes !== 'undefined') {
+				document.getElementById('minimum-break-mins').value =
+					data.minimumBreakMinutes;
 			}
 
 			console.log('Data loaded from localStorage');
@@ -633,6 +1055,17 @@ function calculateWorkingTime() {
 	const afternoonDiff = (afternoonEndMins - afternoonStartMins) / 60;
 	const totalDiff = morningDiff + afternoonDiff;
 
+	// apply global minimum-break penalty
+	const minimumBreakMins =
+		parseInt(document.getElementById('minimum-break-mins').value, 10) || 0;
+	const actualBreakMins = afternoonStartMins - morningEndMins;
+	let penaltyHours = 0;
+	let adjustedTotal = totalDiff;
+	if (!isNaN(actualBreakMins) && actualBreakMins < minimumBreakMins) {
+		penaltyHours = (minimumBreakMins - actualBreakMins) / 60;
+		adjustedTotal = Math.max(0, totalDiff - penaltyHours);
+	}
+
 	// Update session durations
 	updateSessionDuration('morning-duration', morningDiff);
 	updateSessionDuration('afternoon-duration', afternoonDiff);
@@ -646,17 +1079,21 @@ function calculateWorkingTime() {
 		return;
 	}
 
-	const formattedTotal = formatDuration(totalDiff);
+	const formattedTotal = formatDuration(adjustedTotal);
 
-	// Calculate progress percentage
-	const progressPercent = Math.min((totalDiff / minTimeInHours) * 100, 100);
+	// Calculate progress percentage (use adjusted total after penalty)
+	const progressPercent = Math.min(
+		(adjustedTotal / minTimeInHours) * 100,
+		100,
+	);
 	progressBar.style.width = `${progressPercent}%`;
 
 	const targetDisplay = formatDuration(minTimeInHours);
 
-	if (totalDiff >= minTimeInHours) {
+	// Compare adjusted total (after penalty) with minimum
+	if (adjustedTotal >= minTimeInHours) {
 		// Met or exceeded minimum
-		const overtime = totalDiff - minTimeInHours;
+		const overtime = adjustedTotal - minTimeInHours;
 
 		resultCard.className = 'result-card success';
 		if (overtime > 0.01) {
@@ -682,13 +1119,14 @@ function calculateWorkingTime() {
 		}
 	} else {
 		// Below minimum
-		const hoursNeeded = minTimeInHours - totalDiff;
+		const hoursNeeded = minTimeInHours - adjustedTotal;
 
 		resultCard.className = 'result-card warning';
 		resultCard.innerHTML = `
 			<div class="result-text">
 				<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
 					Total: <span class="result-highlight">${formattedTotal}</span>
+					${penaltyHours > 0 ? `<div style="font-size:0.85rem;color:var(--text-muted)">Break penalty applied: ${formatDuration(penaltyHours)}</div>` : ''}
 				</div>
 				<div>
 					You need <span class="result-warning">${formatDuration(hoursNeeded)}</span> more to reach your target of ${targetDisplay}
