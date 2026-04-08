@@ -1091,46 +1091,31 @@ function calculateWorkingTime() {
 	const targetDisplay = formatDuration(minTimeInHours);
 
 	// Compare adjusted total (after penalty) with minimum
-	if (adjustedTotal >= minTimeInHours) {
-		// Met or exceeded minimum
-		const overtime = adjustedTotal - minTimeInHours;
+	// Show signed difference and explicit needed/achieved amounts
+	const diff = adjustedTotal - minTimeInHours; // positive => overtime achieved, negative => needed
+	const diffSign = diff >= 0 ? '+' : '-';
+	const diffAbs = Math.abs(diff);
+	const diffFormatted = formatDuration(diffAbs);
 
+	if (diff >= 0) {
+		// Overtime achieved
 		resultCard.className = 'result-card success';
-		if (overtime > 0.01) {
-			resultCard.innerHTML = `
-				<div class="result-text">
-					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-						Total: <span class="result-success">${formattedTotal}</span>
-					</div>
-					<div>
-						Great job! You've exceeded your target by <span class="result-success">${formatDuration(overtime)}</span>
-					</div>
-				</div>
-			`;
-		} else {
-			resultCard.innerHTML = `
-				<div class="result-text">
-					<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-						Total: <span class="result-success">${formattedTotal}</span>
-					</div>
-					<div>Perfect! You've met your target hours exactly.</div>
-				</div>
-			`;
-		}
+		resultCard.innerHTML = `
+			<div class="result-text">
+				<div style="font-size:1.25rem;margin-bottom:0.5rem;">Total: <span class="result-success">${formattedTotal}</span></div>
+				<div>Overtime achieved: <span class="result-success">${formatDuration(diff)}</span></div>
+				<div style="font-size:0.9rem;color:var(--text-muted);margin-top:0.5rem">Difference: ${diffSign}${diffFormatted}</div>
+			</div>
+		`;
 	} else {
-		// Below minimum
-		const hoursNeeded = minTimeInHours - adjustedTotal;
-
+		// Below target — show how much is needed
 		resultCard.className = 'result-card warning';
 		resultCard.innerHTML = `
 			<div class="result-text">
-				<div style="font-size: 1.25rem; margin-bottom: 0.5rem;">
-					Total: <span class="result-highlight">${formattedTotal}</span>
-					${penaltyHours > 0 ? `<div style="font-size:0.85rem;color:var(--text-muted)">Break penalty applied: ${formatDuration(penaltyHours)}</div>` : ''}
-				</div>
-				<div>
-					You need <span class="result-warning">${formatDuration(hoursNeeded)}</span> more to reach your target of ${targetDisplay}
-				</div>
+				<div style="font-size:1.25rem;margin-bottom:0.5rem;">Total: <span class="result-highlight">${formattedTotal}</span></div>
+				<div>You need <span class="result-warning">${formatDuration(diffAbs)}</span> more to reach your target of ${targetDisplay}</div>
+				${penaltyHours > 0 ? `<div style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem">Break penalty applied: ${formatDuration(penaltyHours)}</div>` : ''}
+				<div style="font-size:0.9rem;color:var(--text-muted);margin-top:0.25rem">Difference: ${diffSign}${diffFormatted}</div>
 			</div>
 		`;
 	}
