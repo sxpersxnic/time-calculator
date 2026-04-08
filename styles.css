@@ -68,6 +68,8 @@ body {
 		'Helvetica Neue', Arial, sans-serif;
 	margin: 0;
 	padding: 0.75rem;
+	/* Reserve top space so fixed controls (theme/install) don't overlap content on small screens */
+	padding-top: 3.5rem;
 	background-color: var(--bg-primary);
 	color: var(--text-primary);
 	line-height: 1.6;
@@ -236,6 +238,7 @@ header h1 {
 	display: grid;
 	gap: 1rem;
 	margin-bottom: 1.5rem;
+	grid-template-columns: 1fr;
 }
 
 /* ============================================
@@ -297,6 +300,7 @@ header h1 {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
+	min-width: 0;
 }
 
 .input-group.centered {
@@ -325,6 +329,7 @@ input[type='time'] {
 	color: var(--text-primary);
 	transition: all 0.3s ease;
 	cursor: pointer;
+	min-width: 0;
 }
 
 input[type='time']:focus {
@@ -592,6 +597,7 @@ input[type='time']:hover {
 
 	.sessions-container {
 		gap: 1.25rem;
+		grid-template-columns: repeat(2, 1fr);
 	}
 
 	.session-card {
@@ -688,6 +694,7 @@ input[type='time']:hover {
 	.sessions-container {
 		gap: 1.5rem;
 		margin-bottom: 2rem;
+		grid-template-columns: repeat(3, 1fr);
 	}
 
 	.session-card {
